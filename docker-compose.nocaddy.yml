@@ -1,0 +1,76 @@
+services:
+  dcggsrrjpj-web-app_main:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dcggsrrjpj-web-app_main
+    ports:
+     - "8732:5000"
+    volumes:
+      - ./app:/app
+      - type: tmpfs
+        target: /app/data/temp
+        tmpfs:
+          size: 2g
+          mode: 0777
+    environment:
+      - FLASK_APP=app.py
+      - PYTHONPATH=/app
+      - SOCKETIO_ASYNC_MODE=gevent
+      # Flask-Session via Redis (server-side sessions)
+      - SESSION_TYPE=redis
+      - SESSION_REDIS=redis://redis:6379/1
+      - SESSION_PERMANENT=true
+      - SESSION_USE_SIGNER=true
+      # Socket.IO cross-worker pub/sub
+      - SOCKETIO_MESSAGE_QUEUE=redis://redis:6379/0
+    depends_on: [redis]
+    networks: [dcggsrrjpj_net]
+    working_dir: /app
+    restart: unless-stopped
+    shm_size: 2gb
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    command:
+      - "gunicorn"
+      - "--worker-class"
+      - "geventwebsocket.gunicorn.workers.GeventWebSocketWorker"
+      - "-w"
+      - "1"
+      - "--timeout"
+      - "90"
+      - "-b"
+      - "0.0.0.0:5000"
+      - "app:app"
+
+  rq-worker:
+    build: .
+    container_name: dcggsrrjpj-rq-worker
+    working_dir: /app
+    command: ["python", "-m", "rq.cli", "worker", "-u", "redis://redis:6379/0", "default"]
+    volumes:
+      - ./app:/app
+    environment:
+      - FLASK_APP=app.py
+      - PYTHONPATH=/app
+      - SOCKETIO_MESSAGE_QUEUE=redis://redis:6379/0
+    depends_on:
+      - redis
+      - dcggsrrjpj-web-app_main
+    networks:
+      - dcggsrrjpj_net
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    networks: [dcggsrrjpj_net]
+    restart: unless-stopped
+
+networks:
+  dcggsrrjpj_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24

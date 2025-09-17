@@ -1,0 +1,40 @@
+{
+    email rogerlew@uidaho.edu
+}
+
+# Global HTTP -> HTTPS redirect (also provides an easy /health check)
+:80 {
+    redir https://{host}{uri}
+}
+
+# Main app with automatic HTTPS via Let's Encrypt
+example.org {
+    encode zstd gzip
+
+    handle /static-dashboard/* {
+        root * /srv/static-dashboard
+        uri strip_prefix /static-dashboard
+        file_server
+    }
+
+    handle /static/* {
+        root * /srv/app-static
+        uri strip_prefix /static
+        file_server
+    }
+
+    # Reverse proxy everything to the Flask app
+    reverse_proxy culvert-web-app_main:5000 {
+        # Enable sticky sessions using a cookie named "session_id"
+        lb_policy cookie session_id
+
+        # Disable response buffering to ensure immediate data forwarding
+        flush_interval -1
+
+        # Explicitly configure the transport to prevent idle timeouts
+        transport http {
+            read_timeout 10m # Keep connections open for 10 minutes
+        }
+    }
+}
+

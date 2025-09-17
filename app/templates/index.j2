@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Socket.IO Long Task Test</title>
+    <style>
+        body { font-family: sans-serif; background-color: #f0f2f5; color: #333; padding: 2em; }
+        h1 { color: #0056b3; }
+        #controls { margin-bottom: 1em; display: flex; gap: 10px; flex-wrap: wrap; }
+        .task-btn { padding: 10px 15px; font-size: 1em; cursor: pointer; color: white; border: none; border-radius: 5px; }
+        .task-btn:disabled { background-color: #aaa; cursor: not-allowed; }
+        #startTaskBtn1 { background-color: #28a745; } /* Green */
+        #startTaskBtn2 { background-color: #17a2b8; } /* Teal */
+        #startTaskBtn3 { background-color: #dc3545; } /* Red */
+        #startTaskBtn4 { background-color: #6f42c1; } /* Purple */
+        #cancelTaskBtn { background-color: #ffc107; color: #333; } /* Yellow */
+        #progress { margin-top: 1em; font-weight: bold; }
+        #log { border: 1px solid #ccc; background-color: #fff; padding: 1em; height: 400px; overflow-y: scroll; border-radius: 5px; }
+        .log-entry { margin-bottom: 0.5em; padding-bottom: 0.5em; border-bottom: 1px solid #eee; }
+        .client { color: #007bff; }
+        .server { color: #28a745; }
+        .error { color: #dc3545; font-weight: bold; }
+        .progress-update { color: #fd7e14; }
+        .warning { color: #ffc107; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Socket.IO Long Task Test with Flask-Session</h1>
+    <p>Connect, start a task, and try cancelling it.</p>
+    
+    <div id="controls">
+        <button id="startTaskBtn1" class="task-btn" disabled>1. Start Task (Socket.IO)</button>
+        <button id="startTaskBtn2" class="task-btn" disabled>2. Start Task (HTTP to Background)</button>
+        <button id="startTaskBtn3" class="task-btn" disabled>3. Start Task (Blocking HTTP)</button>
+        <button id="startTaskBtn4" class="task-btn" disabled>4. Start Task (RQ Queue)</button>
+        <button id="cancelTaskBtn" class="task-btn" disabled>Cancel Running Task</button>
+    </div>
+    <div id="progress"></div>
+
+    <div id="log"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+        let timerInterval = null;
+        let startTime = null;
+        let activeCancellationMethod = null; // 'socketio' or 'http'
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const log = document.getElementById('log');
+            const progressDiv = document.getElementById('progress');
+            const startButtons = document.querySelectorAll('#startTaskBtn1, #startTaskBtn2, #startTaskBtn3, #startTaskBtn4');
+            const cancelBtn = document.getElementById('cancelTaskBtn');
+
+            function setTaskRunning(running) {
+                startButtons.forEach(btn => btn.disabled = running);
+                cancelBtn.disabled = !running;
+                if (!running) {
+                    activeCancellationMethod = null;
+                }
+            }
+            
+            function cleanupTimer() {
+                if (timerInterval) {
+                    clearInterval(timerInterval);
+                    timerInterval = null;
+                    startTime = null;
+                }
+            }
+
+            function addLog(message, type = '') {
+                const entry = document.createElement('div');
+                entry.className = `log-entry ${type}`;
+                entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+                log.appendChild(entry);
+                log.scrollTop = log.scrollHeight;
+            }
+
+            addLog('Attempting to connect to Socket.IO server...', 'client');
+            const socket = io({ transports: ['polling', 'websocket'] });
+
+            socket.on('connect', () => {
+                addLog('Successfully connected to server! SID: ' + socket.id, 'server');
+                setTaskRunning(false);
+            });
+
+            socket.on('disconnect', (reason) => {
+                addLog(`Disconnected from server. Reason: ${reason}`, 'error');
+                setTaskRunning(false);
+                cleanupTimer();
+                progressDiv.textContent = 'Task interrupted due to disconnect.';
+            });
+
+            socket.on('connect_error', (err) => {
+                addLog(`Connection Error: ${err.message}`, 'error');
+            });
+            
+            socket.on('server_welcome', (data) => {
+                addLog(`<- Received welcome from server: "${data.message}"`, 'server');
+            });
+
+            socket.on('task_started', (data) => {
+                addLog(`<- Server reports: ${data.status}`, 'server');
+                progressDiv.textContent = 'Task running... (Elapsed: 0s)';
+                startTime = Date.now();
+                timerInterval = setInterval(() => {
+                    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                    progressDiv.textContent = `Task running... (Elapsed: ${elapsed}s)`;
+                }, 1000);
+            });
+
+            socket.on('task_progress', (data) => {
+                const percent = data.percent;
+                addLog(`<- Server progress: ${percent}% complete`, 'progress-update');
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                progressDiv.textContent = `Progress: ${percent}% (Elapsed: ${elapsed}s)`;
+            });
+
+            socket.on('task_finished', (data) => {
+                addLog(`<- Server reports: ${data.status}`, 'server');
+                cleanupTimer();
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                progressDiv.textContent = `Task Finished! (Total Elapsed: ${elapsed}s)`;
+                setTaskRunning(false);
+            });
+            
+            socket.on('task_cancelled', (data) => {
+                addLog(`<- Server reports: ${data.status}`, 'warning');
+                cleanupTimer();
+                progressDiv.textContent = 'Task Cancelled by User.';
+                setTaskRunning(false);
+            });
+
+            // --- Button 1: Start via Socket.IO ---
+            document.getElementById('startTaskBtn1').addEventListener('click', () => {
+                addLog('-> Method 1: Emitting "start_task" event to server...', 'client');
+                activeCancellationMethod = 'socketio';
+                setTaskRunning(true);
+                progressDiv.textContent = 'Requesting task start...';
+                socket.emit('start_task'); 
+            });
+
+            // --- Button 2: Start via HTTP to Background ---
+            document.getElementById('startTaskBtn2').addEventListener('click', () => {
+                addLog(`-> Method 2: Sending HTTP request to /start-task2 with SID: ${socket.id}`, 'client');
+                activeCancellationMethod = 'http';
+                setTaskRunning(true);
+                progressDiv.textContent = 'Requesting task start...';
+                fetch(`/start-task2?sid=${socket.id}`)
+                    .then(response => response.json())
+                    .then(data => addLog(`<- HTTP Response from server: ${data.message}`, 'server'))
+                    .catch(error => {
+                        addLog(`Error starting task 2: ${error}`, 'error');
+                        setTaskRunning(false);
+                    });
+            });
+
+            // --- Button 3: Start via Blocking HTTP ---
+            document.getElementById('startTaskBtn3').addEventListener('click', () => {
+                addLog('-> Method 3: Sending blocking HTTP request to /start-task3...', 'client');
+                activeCancellationMethod = 'http';
+                setTaskRunning(true);
+                progressDiv.textContent = 'Waiting for blocking task to finish...';
+                fetch(`/start-task3?sid=${socket.id}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        addLog(`<- FINAL HTTP Response from server: ${data.message}`, 'server');
+                        progressDiv.textContent = 'Blocking Task Finished!';
+                    })
+                    .catch(error => addLog(`Error starting task 3: ${error}`, 'error'))
+                    .finally(() => setTaskRunning(false));
+            });
+
+            // --- Button 4: Start via RQ Queue ---
+            document.getElementById('startTaskBtn4').addEventListener('click', () => {
+                addLog(`-> Method 4: Sending HTTP request to /start-task4 with SID: ${socket.id}`, 'client');
+                activeCancellationMethod = 'http';
+                setTaskRunning(true);
+                progressDiv.textContent = 'Requesting task start...';
+                fetch(`/start-task4?sid=${socket.id}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        const message = data.job_id ? `${data.message} (Job ID: ${data.job_id})` : data.message;
+                        addLog(`<- HTTP Response from server: ${message}`, 'server');
+                    })
+                    .catch(error => {
+                        addLog(`Error starting task 4: ${error}`, 'error');
+                        setTaskRunning(false);
+                    });
+            });
+
+            // --- Cancel Button ---
+            cancelBtn.addEventListener('click', () => {
+                if (!activeCancellationMethod) {
+                    addLog('Cannot cancel: No active task method known.', 'error');
+                    return;
+                }
+                
+                addLog(`-> Sending cancellation signal via ${activeCancellationMethod.toUpperCase()}...`, 'client');
+                progressDiv.textContent = 'Sending cancellation signal...';
+
+                if (activeCancellationMethod === 'socketio') {
+                    socket.emit('cancel_task');
+                } else if (activeCancellationMethod === 'http') {
+                    fetch(`/cancel-task?sid=${socket.id}`)
+                      .then(res => res.json())
+                      .then(data => addLog(`<- HTTP Response for cancel: ${data.message}`, 'server'))
+                      .catch(err => addLog(`Cancellation error: ${err}`, 'error'));
+                }
+                // The server will confirm with a 'task_cancelled' event
+            });
+        });
+    </script>
+</body>
+</html>
