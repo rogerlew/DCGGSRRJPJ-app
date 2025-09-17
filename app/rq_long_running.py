@@ -12,117 +12,52 @@ from typing import Iterable, List
 from redis import Redis
 from rq import get_current_job
 from rq.decorators import job
+from flask import Flask
+from flask_socketio import SocketIO
+import redis
 
+import time
+import os
+import socketio
 
-REDIS_URL = os.getenv("RQ_REDIS_URL") or os.getenv("REDIS_URL") or "redis://redis:6379/0"
-redis_connection = Redis.from_url(REDIS_URL)
+# --- Configuration ---
+# MUST match the message queue used by your main Flask-SocketIO app
+REDIS_URL = os.getenv("SOCKETIO_MESSAGE_QUEUE", "redis://redis:6379/0")
 
-def _run_subprocess(command: Iterable[str]) -> int:
-    """Run a subprocess and return its exit code."""
-    completed = subprocess.run(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-        text=True,
-    )
+# Connection for the cancellation flag (using a different DB)
+redis_cancel_client = redis.StrictRedis(host='redis', port=6379, db=3, decode_responses=True)
 
-    if completed.stdout:
-        print(f"    [stdout] {' '.join(command)} -> {completed.stdout.strip()[:200]}")
-    if completed.stderr:
-        print(f"    [stderr] {' '.join(command)} -> {completed.stderr.strip()[:200]}")
+# --- Socket.IO Publisher ---
+# This is the key component. It connects to Redis to publish messages.
+# write_only=True is an optimization, as this worker never needs to receive messages.
+worker_socketio = socketio.RedisManager(REDIS_URL, write_only=True)
 
-    return completed.returncode
+def long_running_task(sid):
+    """
+    This is the version of the task designed to be run by an RQ worker.
+    It uses socketio.RedisManager to proxy messsage to client
+    The core logic is identical to the gevent-based task.
+    """
+    # Create a temporary app and socketio instance for the worker process.
+    # This socketio instance will connect to the Redis message queue as a client
+    # and publish messages, which the main server will then pick up and send to the browser.
 
+    worker_socketio.emit('task_started',
+                        {'status': 'Your independent task has been started.'},
+                        to=sid)
 
-@job('default', connection=redis_connection, timeout=3600)
-def long_running_task(sid: str) -> None:
-    """Execute the long-running workload inside an application context."""
+    print(f"[RQ Worker] Task started for SID: {sid}")
+    cancel_key = f"cancel_{sid}"
 
-    from app import app, redis_cancel_client, socketio
+    worker_socketio.emit('task_progress', {'percent': 0.0}, to=sid)
 
-    with app.app_context():
-        job = get_current_job()
-        if job:
-            job.meta.update({'sid': sid, 'progress': 0, 'status': 'running'})
-            job.save_meta()
+    total_iterations = 50
 
-        cancel_key = f"cancel_{sid}"
-        temp_dir = tempfile.mkdtemp(prefix="thread-task-")
-        total_iterations = 50
+    for i in range(1, total_iterations + 1):
+        
+        time.sleep(2)
 
-        print(f"Task started for SID: {sid}")
-        print(f"  Created temp dir for SID {sid}: {temp_dir}")
-
-        socketio.emit('task_progress', {'percent': 0.0}, to=sid)
-        # hang
-
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            for iteration in range(1, total_iterations + 1):
-                if redis_cancel_client.get(cancel_key):
-                    print(
-                        f"  [!] Cancellation signal received for SID: {sid} before iteration {iteration}. Stopping."
-                    )
-                    socketio.emit('task_cancelled', {'status': 'Task was cancelled by user.'}, to=sid)
-                    redis_cancel_client.delete(cancel_key)
-                    break
-
-                print(f"  Starting iteration {iteration}/{total_iterations} for SID: {sid}")
-
-                cpu_command: List[str] = [
-                    "openssl",
-                    "speed",
-                    "-evp",
-                    "aes-256-cbc",
-                    "-multi",
-                    "10",
-                ]
-
-                disk_output_file = os.path.join(temp_dir, f"temp_disk_file_iter_{iteration}.bin")
-                disk_command: List[str] = [
-                    "dd",
-                    "if=/dev/zero",
-                    f"of={disk_output_file}",
-                    "bs=1M",
-                    "count=1024",
-                    "oflag=direct",
-                ]
-
-                cpu_future = executor.submit(_run_subprocess, cpu_command)
-                disk_future = executor.submit(_run_subprocess, disk_command)
-
-                cpu_result = cpu_future.result()
-                disk_result = disk_future.result()
-
-                print(
-                    "  Finished iteration {iter_idx}. CPU task exit code: {cpu_exit}, Disk task exit code: {disk_exit}".format(
-                        iter_idx=iteration,
-                        cpu_exit=cpu_result,
-                        disk_exit=disk_result,
-                    )
-                )
-
-                try:
-                    os.remove(disk_output_file)
-                except OSError as exc:
-                    print(f"  Warning: Could not remove temp file {disk_output_file}: {exc}")
-
-                percent_complete = int((iteration / total_iterations) * 100)
-                socketio.emit('task_progress', {'percent': percent_complete}, to=sid)
-                print(f"  ... progress {percent_complete}% for SID: {sid}")
-
-                if job:
-                    job.meta.update({'progress': percent_complete})
-                    job.save_meta()
-
-            else:
-                socketio.emit(
-                    'task_finished',
-                    {'status': f'Task completed all {total_iterations} iterations.'},
-                    to=sid,
-                )
-                print(f"Task finished normally for SID: {sid}")
-
-                if job:
-                    job.meta.update({'progress': 100, 'status': 'finished'})
-                    job.save_meta()
+        
+        percent_complete = int((i / total_iterations) * 100)
+        worker_socketio.emit('task_progress', {'percent': percent_complete}, to=sid)
+        print(f"  [RQ Worker] ... progress {percent_complete}% for SID: {sid}")
