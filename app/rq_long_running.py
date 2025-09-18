@@ -16,7 +16,10 @@ def long_running_task(sid):
     """
     This is the version of the task designed to be run by an RQ worker.
     """
-    worker_socketio = socketio.RedisManager(REDIS_URL, write_only=True)
+    worker_socketio = socketio.RedisManager(
+        REDIS_URL, write_only=True,
+        channel='flask-socketio'
+    )
 
     # ==================== START _publish TEST ====================
     print("--- TESTING _publish DIRECTLY ---", flush=True)

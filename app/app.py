@@ -41,7 +41,7 @@ socketio = SocketIO(
     app,
     cors_allowed_origins="*",
     async_mode="gevent",
-    channel='socketio',
+    channel='flask-socketio',
     message_queue=os.getenv("SOCKETIO_MESSAGE_QUEUE", "redis://redis:6379/2"),
     logger=True,
     engineio_logger=True
