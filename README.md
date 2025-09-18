@@ -3,8 +3,6 @@
 
 We use to have LAMP (Linux Apache MySQL PHP), now we have DCGGSRRJPJ
 
-<img width="1405" height="869" alt="Image" src="https://github.com/user-attachments/assets/4c7a16dc-3f46-49a4-9d61-dc8fe663a926" />
-
 # **DCGGSRRJPJ Stack App**
 
 ### **A Test Bench for Long-Running Tasks in Flask... and a Monument to the Debugging Hell Required to Make Them Work.**
