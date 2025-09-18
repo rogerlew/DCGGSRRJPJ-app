@@ -47,7 +47,6 @@ services:
 
   rq-worker:
     build: .
-    container_name: dcggsrrjpj-rq-worker
     working_dir: /app
     command: ["python", "-m", "rq.cli", "worker", "-u", "redis://redis:6379/0", "default"]
     volumes:
