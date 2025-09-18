@@ -41,7 +41,8 @@ socketio = SocketIO(
     app,
     cors_allowed_origins="*",
     async_mode="gevent",
-    message_queue=os.getenv("SOCKETIO_MESSAGE_QUEUE", "redis://redis:6379/0"),
+    channel='socketio',
+    message_queue=os.getenv("SOCKETIO_MESSAGE_QUEUE", "redis://redis:6379/2"),
     logger=True,
     engineio_logger=True
 )

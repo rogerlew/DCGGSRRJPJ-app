@@ -23,7 +23,7 @@ services:
       - SESSION_PERMANENT=true
       - SESSION_USE_SIGNER=true
       # Socket.IO cross-worker pub/sub
-      - SOCKETIO_MESSAGE_QUEUE=redis://redis:6379/0
+      - SOCKETIO_MESSAGE_QUEUE=redis://redis:6379/2
     depends_on: [redis]
     networks: [dcggsrrjpj_net]
     working_dir: /app
@@ -54,7 +54,7 @@ services:
     environment:
       - FLASK_APP=app.py
       - PYTHONPATH=/app
-      - SOCKETIO_MESSAGE_QUEUE=redis://redis:6379/0
+      - SOCKETIO_MESSAGE_QUEUE=redis://redis:6379/2
     depends_on:
       - redis
       - dcggsrrjpj-web-app_main
