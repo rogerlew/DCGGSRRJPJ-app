@@ -84,6 +84,8 @@ def long_running_task(sid):
     temp_dir = tempfile.mkdtemp(prefix="gevent-task-")
     print(f"  Created temp dir for SID {sid}: {temp_dir}")
 
+    socketio.emit('task_progress', {'percent': 0.0}, to=sid)
+    
     total_iterations = 50
 
     try:
