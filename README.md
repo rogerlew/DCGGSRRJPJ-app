@@ -69,6 +69,10 @@ This is the most robust and production-ready solution demonstrated. It uses the 
     3. **Message Channel Mismatch**: The default channel for socketio.RedisManager (socketio) and Flask-SocketIO (flask-socketio) can differ. You must **explicitly define the same channel name** for both the publisher (worker) and subscriber (server).  
     4. **Missing Gunicorn Worker**: When using gevent, you need the gevent-websocket package to provide the Gunicorn worker class. It is not always installed as a direct dependency.
 
+#### Using `socketio.RedisManager` inside RQ workers
+
+The RQ worker must avoid importing `app.app` just to reach the Socket.IO instance. The web app enables gevent by calling `monkey.patch_all()` at import time; pulling that module into the worker would patch standard library primitives and trick the worker into running under gevent, leading to confusing crashes and lost jobs. Instead, the worker creates its own `socketio.RedisManager(..., write_only=True)` and emits over the Redis message queue. Flask-SocketIO running in the web container subscribes to the same channel and forwards the events to connected clients, so the worker never needs an application context or to touch the Flask app directly. Note that Flask-SocketIO defaults to the `flask-socketio` channel while python-socketio defaults to `socketio`; both the server (`SocketIO(..., channel='flask-socketio')`) and the worker (`RedisManager(..., channel='flask-socketio')`) explicitly set the channel so they speak the same Pub/Sub language.
+
 ---
 
 ## **Technical Stack & Setup**
