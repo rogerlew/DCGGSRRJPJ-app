@@ -15,7 +15,8 @@ This project serves as a functional test bench and a cautionary tale for handlin
 ## **Purpose**
 
 The primary purpose of this repository is to demonstrate and compare different architectural patterns for executing long-running background jobs initiated from a Flask web server, with real-time progress updates sent to the client using WebSockets (Flask-SocketIO).  
-Long-running tasks—like data processing, report generation, or machine learning inference—will lock up a standard web server, making it unresponsive. This application explores and provides functional code for the solutions to this problem.  
+Naively running long tasks in HTTP routes—like data processing, report generation, or machine learning inference—will lock up a standard web server, making it unresponsive. This application explores and provides functional code for the solutions to this problem.  
+
 ---
 
 ## **Task Running Methods Compared**
