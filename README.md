@@ -4,7 +4,7 @@
 # DCGGSRRJPJ Stack App
 ## Docker Caddy Gevent Gunicorn Flask SocketIO Redis RedisQueue Jinja2 Python Javascript
 
-We use to have LAMP (Linux Apache MySQL PHP), now we have DCGGSRRJPJ
+We use to have LAMP (Linux Apache MySQL PHP), now we have DCGGSRRJPJ. 60% of the time, it works everytime.
 
 # **DCGGSRRJPJ Stack App**
 
