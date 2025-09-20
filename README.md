@@ -1,7 +1,10 @@
+<img width="1920" height="1080" alt="Image" src="https://github.com/user-attachments/assets/2b1fedc2-d270-488f-9ddc-6f4cfdd52615" />
+<img width="1920" height="1080" alt="Image" src="https://github.com/user-attachments/assets/c91afe06-e27c-4ed4-9d11-74d40e39e126" />
+
 # DCGGSRRJPJ Stack App
 ## Docker Caddy Gevent Gunicorn Flask SocketIO Redis RedisQueue Jinja2 Python Javascript
 
-We use to have LAMP (Linux Apache MySQL PHP), now we have DCGGSRRJPJ
+We use to have LAMP (Linux Apache MySQL PHP), now we have DCGGSRRJPJ. 60% of the time, it works everytime.
 
 # **DCGGSRRJPJ Stack App**
 
