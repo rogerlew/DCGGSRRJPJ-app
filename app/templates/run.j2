@@ -161,22 +161,29 @@
                 setTaskRunning(false);
             });
 
+            socket.on('task_error', (data) => {
+                addLog(`<- Server error: ${data.message}`, 'error');
+                cleanupTimer();
+                progressDiv.textContent = 'Task failed to start.';
+                setTaskRunning(false);
+            });
+
             // --- Button 1: Start via Socket.IO ---
             document.getElementById('startTaskBtn1').addEventListener('click', () => {
                 addLog('-> Method 1: Emitting "start_task" event to server...', 'client');
                 activeCancellationMethod = 'socketio';
                 setTaskRunning(true);
                 progressDiv.textContent = 'Requesting task start...';
-                socket.emit('start_task'); 
+                socket.emit('start_task', { run_enum: runEnum }); 
             });
 
             // --- Button 2: Start via HTTP to Background ---
             document.getElementById('startTaskBtn2').addEventListener('click', () => {
-                addLog(`-> Method 2: Sending HTTP request to /start-task2 with SID: ${socket.id}`, 'client');
+                addLog(`-> Method 2: Sending HTTP request to /runs/${runEnum}/start-task2 with SID: ${socket.id}`, 'client');
                 activeCancellationMethod = 'http';
                 setTaskRunning(true);
                 progressDiv.textContent = 'Requesting task start...';
-                fetch(`/start-task2?sid=${socket.id}`)
+                fetch(`/runs/${runEnum}/start-task2?sid=${socket.id}`)
                     .then(response => response.json())
                     .then(data => addLog(`<- HTTP Response from server: ${data.message}`, 'server'))
                     .catch(error => {
@@ -187,11 +194,11 @@
 
             // --- Button 3: Start via Blocking HTTP ---
             document.getElementById('startTaskBtn3').addEventListener('click', () => {
-                addLog('-> Method 3: Sending blocking HTTP request to /start-task3...', 'client');
+                addLog(`-> Method 3: Sending blocking HTTP request to /runs/${runEnum}/start-task3...`, 'client');
                 activeCancellationMethod = 'http';
                 setTaskRunning(true);
                 progressDiv.textContent = 'Waiting for blocking task to finish...';
-                fetch(`/start-task3?sid=${socket.id}`)
+                fetch(`/runs/${runEnum}/start-task3?sid=${socket.id}`)
                     .then(response => response.json())
                     .then(data => {
                         addLog(`<- FINAL HTTP Response from server: ${data.message}`, 'server');
@@ -207,7 +214,7 @@
                 activeCancellationMethod = 'http';
                 setTaskRunning(true);
                 progressDiv.textContent = 'Requesting task start...';
-                fetch(`/start-task4?sid=${socket.id}`)
+                fetch(`/runs/${runEnum}/start-task4?sid=${socket.id}`)
                     .then(response => response.json())
                     .then(data => {
                         const message = data.job_id ? `${data.message} (Job ID: ${data.job_id})` : data.message;

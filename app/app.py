@@ -150,34 +150,60 @@ def update_run_name(run_enum: int):
 
 # --- Method 1: Start task via Socket.IO event (Recommended) ---
 @socketio.on('start_task')
-def handle_start_task():
+def handle_start_task(data):
     """Starts the task for the requesting client."""
     from gevent_long_running import long_running_task
+
     sid = request.sid
-    print(f"Received 'start_task' event from SID: {sid}")
+    run_enum = None
+    if isinstance(data, dict):
+        run_enum = data.get('run_enum')
+
+    print(f"Received 'start_task' event from SID: {sid} with run_enum={run_enum}")
+
+    if run_enum is None:
+        emit('task_error', {'message': 'run_enum is required to start a task.'})
+        return
+
+    run = get_run(run_enum)
+    if run is None:
+        emit('task_error', {'message': f'Run {run_enum} not found.'})
+        return
+
+    if run.total_iterations <= 0:
+        emit('task_error', {'message': 'Configured total_iterations must be a positive integer.'})
+        return
+
     redis_cancel_client.delete(f"cancel_{sid}") # Clear any old cancellation flags
     emit('task_started', {'status': 'Your background task has been initiated.'})
-    socketio.start_background_task(long_running_task, sid)
+    socketio.start_background_task(long_running_task, sid, run.total_iterations)
 
 # --- Method 2: Start task via non-blocking HTTP request ---
-@app.route('/start-task2')
-def start_long_task2():
+@app.route('/runs/<int:run_enum>/start-task2')
+def start_long_task2(run_enum: int):
     """Starts the task by getting the SID from the request args."""
     from gevent_long_running import long_running_task
     sid = request.args.get('sid')
     if not sid:
         return jsonify({"message": "Error: SID is required."}), 400
-    
-    print(f"Received HTTP request for /start-task2 for SID: {sid}")
+
+    run = get_run(run_enum)
+    if run is None:
+        raise NotFound(f'Run {run_enum} not found.')
+
+    if run.total_iterations <= 0:
+        return jsonify({"message": "Configured total_iterations must be a positive integer."}), 400
+
+    print(f"Received HTTP request for /runs/{run_enum}/start-task2 for SID: {sid}")
     redis_cancel_client.delete(f"cancel_{sid}") # Clear any old cancellation flags
     socketio.emit('task_started', {'status': 'Your background task has been initiated.'}, to=sid)
-    socketio.start_background_task(long_running_task, sid)
+    socketio.start_background_task(long_running_task, sid, run.total_iterations)
     return jsonify({"message": "Your long-running task has been started via HTTP."})
 
 
 # --- Method 3: A cooperative but blocking task with cancellation ---
-@app.route('/start-task3')
-def start_long_task3():
+@app.route('/runs/<int:run_enum>/start-task3')
+def start_long_task3(run_enum: int):
     """
     Starts a long-running, INTENTIONALLY BLOCKING task directly within the HTTP
     request-response cycle. 
@@ -194,6 +220,13 @@ def start_long_task3():
     if not sid:
         return jsonify({"message": "Error: SID is required for this test."}), 400
 
+    run = get_run(run_enum)
+    if run is None:
+        raise NotFound(f'Run {run_enum} not found.')
+
+    if run.total_iterations <= 0:
+        return jsonify({"message": "Configured total_iterations must be a positive integer."}), 400
+
     print(f"🛑 Starting INTENTIONALLY BLOCKING task for SID: {sid}")
     print("   This server worker will be UNRESPONSIVE to other HTTP requests until this completes.")
 
@@ -203,7 +236,7 @@ def start_long_task3():
     socketio.emit('task_started', {'status': 'Your blocking task has started.'}, to=sid)
 
     temp_dir = tempfile.mkdtemp(prefix="blocking-task-")
-    total_iterations = 20
+    total_iterations = run.total_iterations
 
     try:
         for i in range(1, total_iterations + 1):
@@ -254,18 +287,27 @@ def start_long_task3():
 
 
 # --- Method 4: Start task via RQ enqueue ---
-@app.route('/start-task4')
-def start_long_task4():
+@app.route('/runs/<int:run_enum>/start-task4')
+def start_long_task4(run_enum: int):
     """Enqueues the long-running task onto the RQ worker."""
 
     sid = request.args.get('sid')
     if not sid:
         return jsonify({"message": "Error: SID is required."}), 400
 
+    run = get_run(run_enum)
+    if run is None:
+        raise NotFound(f'Run {run_enum} not found.')
+
+    if run.total_iterations <= 0:
+        return jsonify({"message": "Configured total_iterations must be a positive integer."}), 400
+
+    total_iterations = run.total_iterations
+
     print(f"Received HTTP request for /start-task4 for SID: {sid}")
     redis_cancel_client.delete(f"cancel_{sid}")
     socketio.emit('task_started', {'status': 'Your background task has been queued.'}, to=sid)
-    job = task_queue.enqueue('rq_long_running.long_running_task', sid, job_timeout=3600)
+    job = task_queue.enqueue('rq_long_running.long_running_task', sid, total_iterations, job_timeout=3600)
     return jsonify({"message": "Your long-running task has been queued via RQ.", "job_id": job.id})
 
 
