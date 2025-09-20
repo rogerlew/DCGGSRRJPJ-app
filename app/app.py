@@ -4,7 +4,7 @@ monkey.patch_all()
 # ================================================================================
 # app.py - Comparing Methods for Long-Running Tasks (with Cancellation)
 # ================================================================================
-from flask import Flask, render_template, request, session, jsonify
+from flask import Flask, render_template, request, session, jsonify, redirect, url_for
 from flask_socketio import SocketIO, emit
 from flask_session import Session
 from datetime import timedelta
@@ -16,6 +16,25 @@ import shutil
 import gevent
 import gevent.subprocess as subprocess # Crucial for non-blocking subprocesses
 from rq import Queue
+from werkzeug.exceptions import NotFound
+
+from models import Run
+from run_repository import (
+    init_db,
+    list_runs,
+    get_run,
+    create_run as repo_create_run,
+    update_total_iterations as repo_update_total_iterations,
+    update_run_name as repo_update_run_name,
+)
+
+
+def _run_to_dict(run: Run) -> dict:
+    return {
+        'run_enum': run.run_enum,
+        'total_iterations': run.total_iterations,
+        'run_name': run.run_name,
+    }
 
 # --- App Initialization ---
 app = Flask(__name__)
@@ -51,6 +70,9 @@ socketio = SocketIO(
 rq_redis_url = os.getenv('RQ_REDIS_URL') or os.getenv('REDIS_URL') or f'redis://{redis_host}:6379/0'
 task_queue = Queue('default', connection=redis.Redis.from_url(rq_redis_url), default_timeout=3600)
 
+# Ensure the Run storage is ready before handling requests
+init_db()
+
 
 # ================================================================================
 # Health check route for Proxy
@@ -64,8 +86,67 @@ def health():
 # ================================================================================
 @app.route('/')
 def index():
-    """Serves the updated HTML page with task controls."""
-    return render_template('index.j2')
+    """Displays the list of available runs."""
+    runs = list_runs()
+    return render_template('index.j2', runs=runs)
+
+
+@app.route('/runs/new')
+def create_run_route():
+    """Creates a new run with default settings and redirects to its detail page."""
+    run = repo_create_run()
+    if run.run_enum is None:
+        raise RuntimeError('Failed to create run')
+    return redirect(url_for('run_detail', run_enum=run.run_enum))
+
+
+@app.route('/runs/<int:run_enum>')
+def run_detail(run_enum: int):
+    """Displays the configuration and controls for a specific run."""
+    run = get_run(run_enum)
+    if run is None:
+        raise NotFound(f'Run {run_enum} not found.')
+    return render_template('run.j2', run=run)
+
+
+@app.route('/runs/<int:run_enum>/total-iterations', methods=['POST'])
+def update_total_iterations(run_enum: int):
+    """Updates the total iterations for a given run."""
+    payload = request.get_json(silent=True) or {}
+
+    try:
+        total_iterations = int(payload.get('total_iterations', 0))
+        if total_iterations <= 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({'message': 'total_iterations must be a positive integer'}), 400
+
+    if not repo_update_total_iterations(run_enum, total_iterations):
+        raise NotFound(f'Run {run_enum} not found.')
+
+    run = get_run(run_enum)
+    if run is None:
+        raise NotFound(f'Run {run_enum} not found.')
+    return jsonify({'message': 'total_iterations updated', 'run': _run_to_dict(run)})
+
+
+@app.route('/runs/<int:run_enum>/run-name', methods=['POST'])
+def update_run_name(run_enum: int):
+    """Updates the run name for a given run."""
+    payload = request.get_json(silent=True) or {}
+    run_name = payload.get('run_name')
+
+    if not isinstance(run_name, str):
+        return jsonify({'message': 'run_name must be a string'}), 400
+
+    normalized_name = run_name.strip()
+    if not repo_update_run_name(run_enum, normalized_name):
+        raise NotFound(f'Run {run_enum} not found.')
+
+    run = get_run(run_enum)
+    if run is None:
+        raise NotFound(f'Run {run_enum} not found.')
+    return jsonify({'message': 'run_name updated', 'run': _run_to_dict(run)})
 
 # --- Method 1: Start task via Socket.IO event (Recommended) ---
 @socketio.on('start_task')

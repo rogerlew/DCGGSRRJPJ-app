@@ -70,13 +70,16 @@ def _run_subprocess_with_cancel_check(sid, command):
         return f'error: {e}'
 
 
-def long_running_task(sid):
+def long_running_task(sid, total_iterations):
     """
     A non-trivial long-running task that spawns concurrent CPU-bound and
     Disk I/O-bound subprocesses in a loop, with cancellation support.
     """
 
     from app import redis_cancel_client, socketio
+
+    if total_iterations < 1:
+        raise ValueError("total_iterations must be at least 1")
 
     print(f"Task started for SID: {sid}")
     cancel_key = f"cancel_{sid}"
@@ -86,8 +89,6 @@ def long_running_task(sid):
 
     socketio.emit('task_progress', {'percent': 0.0}, to=sid)
     
-    total_iterations = 50
-
     try:
         for i in range(1, total_iterations + 1):
             # --- 1. Pre-iteration Cancellation Check ---

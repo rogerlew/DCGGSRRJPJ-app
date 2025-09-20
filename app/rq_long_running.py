@@ -22,11 +22,15 @@ def _run_subprocess(command):
     return result.returncode
 
 
-def long_running_task(sid):
+def long_running_task(sid, total_iterations):
     """
     An RQ task that runs concurrent CPU and Disk I/O bound subprocesses,
     emits progress via RedisManager, and supports cancellation between iterations.
     """
+
+    if total_iterations < 1:
+        raise ValueError("total_iterations must be at least 1")
+    
     worker_socketio = socketio.RedisManager(
         REDIS_URL, write_only=True,
         channel='flask-socketio'
@@ -42,8 +46,6 @@ def long_running_task(sid):
     print(f"  [RQ Worker] Created temp dir for SID {sid}: {temp_dir}", flush=True)
 
     worker_socketio.emit('task_progress', {'percent': 0.0}, to=sid)
-
-    total_iterations = 50
 
     try:
         for i in range(1, total_iterations + 1):
